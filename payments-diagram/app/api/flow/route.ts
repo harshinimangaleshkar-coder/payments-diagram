@@ -1,14 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
 
-export async function POST(req: NextRequest) {
+export const runtime = "nodejs";
+
+export async function POST(request) {
   try {
-    const { flow } = await req.json();
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
+    }
 
-    if (!flow || typeof flow !== "string" || flow.trim().length < 10) {
+    const body = await request.json().catch(() => ({}));
+    const flow = typeof body.flow === "string" ? body.flow.trim() : "";
+    if (flow.length < 10) {
       return NextResponse.json({ error: "Please provide a longer narrative." }, { status: 400 });
     }
 
-    const system = "You convert payments narratives into accurate Mermaid sequence diagrams.";
+    const system =
+      "You convert payments narratives into accurate Mermaid sequence diagrams.";
     const user = `
 Lifelines: Customer, Merchant, PSP, Network, Issuer.
 Include: authorization, capture, settlement, refund or void if relevant.
@@ -17,42 +26,44 @@ Return JSON only: { "mermaid": "...", "notes": "- bullet\\n- bullet" }
 Narrative:
 <<<${flow}>>>`;
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: { type: "json_object" },
-      }),
+    const client = new OpenAI({ apiKey });
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+    const resp = await client.chat.completions.create({
+      model,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
     });
 
-    if (!resp.ok) {
-      const t = await resp.text();
-      return NextResponse.json({ error: t }, { status: 500 });
-    }
+    const content = resp?.choices?.[0]?.message?.content ?? "{}";
 
-    const data = await resp.json();
-    const content: string = data?.choices?.[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(content) as { mermaid?: unknown; notes?: unknown };
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return NextResponse.json(
+        { error: "Model did not return valid JSON." },
+        { status: 500 }
+      );
+    }
 
     const mermaid = typeof parsed.mermaid === "string" ? parsed.mermaid : "";
     const notes = typeof parsed.notes === "string" ? parsed.notes : "";
 
     if (!mermaid.startsWith("sequenceDiagram")) {
-      return NextResponse.json({ error: "Model did not return valid Mermaid. Try again." }, { status: 500 });
+      return NextResponse.json(
+        { error: "Model did not return valid Mermaid." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ mermaid, notes });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (err) {
+    const detail = err?.response?.data || err?.message || String(err);
+    return NextResponse.json({ error: "Server error", detail }, { status: 500 });
   }
 }
