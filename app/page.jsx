@@ -257,7 +257,7 @@ ${diagram || "No Mermaid provided."}
       </section>
 
       <footer style={{ marginTop: 24, textAlign: "center", color: "#6b7280", fontSize: 13 }}>
-        Built for clarity • Export diagram or notes for documentation
+        Built for clarity by Harshini Mangaleshkar • Export diagram or notes for documentation
       </footer>
     </main>
   );
