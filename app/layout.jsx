@@ -8,5 +8,5 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
-console.log(process.env.NEXT_PUBLIC_GA_ID);
+
 
